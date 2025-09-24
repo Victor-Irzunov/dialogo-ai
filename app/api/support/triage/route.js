@@ -1,56 +1,55 @@
-// /app/api/support/triage/route.js
-import { auth, bad, ok, options, openai } from "../_utils";
+import { auth, bad, ok, options, openai } from "../../_utils";
+
 export const runtime = "nodejs";
 export async function OPTIONS(){ return options(); }
 
 export async function POST(req){
-  if(!auth(req)) return bad("unauthorized", 401);
-  const body = await req.json().catch(()=>({}));
-  const message = (body.message||"").toString();
-  const context = body.context || {};
-  if(!message.trim()) return ok({
-    intent: 'general_support',
-    need_ticket: true,
-    user_reply: 'Опишите, пожалуйста, проблему чуть подробнее.',
-    confidence: 0.2,
-  });
+  // защищаем внутренним токеном (x-internal-token === process.env.INTERNAL_TOKEN)
+  if (!auth(req)) return bad("unauthorized", 401);
 
-  // если ключа нет — эвристика
-  if(!process.env.OPENAI_API_KEY){
-    const low = /возврат|рефанд|refund|двойн|списан|чек|не пришл|ошибк|баг|не работает|не вид(но|ит)|нет доступ|подписк/i.test(message);
-    return ok({
-      intent: low ? 'billing_or_access_issue' : 'general_support',
-      need_ticket: true,
-      user_reply: 'Я передам информацию администратору и вернусь с ответом. Укажите e-mail или ID платежа.',
-      confidence: 0.5,
-    });
-  }
+  const body = await req.json().catch(() => ({}));
+  const message = String(body?.message || "").trim();
+  const context = body?.context || {};
+  if (!message) return bad("message required", 400);
 
-  const client = openai();
+  // --- ВАШ PROMPT ТУТ ---
   const prompt = [
-    { role: 'system', content: 'Ты ассистент саппорта Dialogo. Коротко, по-русски. Верни строго JSON без пояснений.' },
-    { role: 'user', content:
-      `Сообщение пользователя: """${message}"""\n` +
-      `Контекст: ${JSON.stringify(context)}\n` +
-      `Верни JSON: {"intent":"string","need_ticket":true|false,"user_reply":"короткий ответ","confidence":0..1}`
+    {
+      role: "system",
+      content:
+        "Ты ассистент саппорта Dialogo. Отвечай кратко, по-русски. Верни строго JSON без пояснений."
+    },
+    {
+      role: "user",
+      content:
+        `Сообщение пользователя: """${message}"""\n` +
+        `Контекст: ${JSON.stringify({
+          hasAccess: !!context.hasAccess,
+          everPaid: !!context.everPaid,
+          plan: context.plan ?? null,
+          expires: context.expires ?? null,
+        })}\n` +
+        `Задача: определи intent и need_ticket. Верни JSON:\n` +
+        `{"intent": "string", "need_ticket": true|false, "user_reply": "короткий ответ", "confidence": 0..1}`
     }
   ];
 
+  const client = openai();
   const r = await client.chat.completions.create({
-    model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
-    messages: prompt,
+    model: process.env.OPENAI_MODEL || "gpt-4o-mini",
     temperature: 0.2,
-    response_format: { type: 'json_object' },
+    response_format: { type: "json_object" },
+    messages: prompt,
   });
 
-  let data = {};
-  try { data = JSON.parse(r?.choices?.[0]?.message?.content || '{}'); }
-  catch {}
+  const txt = r?.choices?.[0]?.message?.content || "{}";
+  let data;
+  try { data = JSON.parse(txt); } catch { data = {}; }
 
   return ok({
-    intent: String(data.intent || 'general_support'),
+    intent: String(data.intent || "general_support"),
     need_ticket: !!data.need_ticket,
-    user_reply: String(data.user_reply || 'Мы разберёмся и вернёмся с ответом.'),
-    confidence: Number(data.confidence ?? 0.5),
+    user_reply: String(data.user_reply || "Мы разберёмся и вернёмся с ответом."),
+    confidence: Number.isFinite(+data.confidence) ? +data.confidence : 0.5,
   });
 }

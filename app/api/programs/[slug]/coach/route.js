@@ -52,7 +52,7 @@ slug: ${slug}
 day: ${day?.day ?? dayNumber}
 title: ${day?.title || ""}
 theory:
-Array.isArray(day?.theory) ? day.theory.map(t => \`- \${t}\`).join("\n") : "- (нет)"
+${Array.isArray(day?.theory) ? day.theory.map(t => `- ${t}`).join("\n") : "- (нет)"}
 
 practice:
 ${day?.practice ? JSON.stringify(day.practice) : "(нет)"}

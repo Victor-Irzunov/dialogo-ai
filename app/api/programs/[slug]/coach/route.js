@@ -14,9 +14,9 @@ export async function POST(req, { params }) {
   const slug = String(params?.slug || "").trim();
   const body = await req.json().catch(()=>({}));
   const dayNumber = Number(body?.dayNumber);
-  const meta = body?.meta || {};       // { title, daysCount }
-  const day  = body?.day  || {};       // { day, title, theory[], practice{type,...} }
-  const answers = body?.answers || {}; // сохранённые ответы шага (что есть)
+  const meta = body?.meta || {};
+  const day  = body?.day  || {};
+  const answers = body?.answers || {};
   const tone = body?.tone || "мягкий, поддерживающий";
 
   if (!slug || !Number.isFinite(dayNumber) || !day?.title) {

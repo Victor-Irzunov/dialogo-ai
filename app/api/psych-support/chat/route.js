@@ -1,4 +1,4 @@
-// /app/api/psych-support/chat/route.js
+// /app/api/psych-support/chat/route.js  (ai.dialogo)
 import { NextResponse } from 'next/server';
 
 export const runtime = 'nodejs';
@@ -14,7 +14,6 @@ async function askAI(message, ctx) {
     /тест|контент|seo|дизайн|совет|психологич|проблем.*клиент/i.test(message) &&
     !/оплат|тариф|профи|vip|закрепл|подним/i.test(message);
 
-  // Fallback без ключа — быстрые правила
   if (!key) {
     if (offTopic) {
       return {
@@ -24,9 +23,7 @@ async function askAI(message, ctx) {
         confidence: 0.6,
       };
     }
-    const need = /не прош|списан|двойн|возврат|рефанд|чек|квитанц|ошибк|не видн|не актив/i.test(
-      message
-    );
+    const need = /не прош|списан|двойн|возврат|рефанд|чек|квитанц|ошибк|не видн|не актив/i.test(message);
     return {
       intent: /vip|закреп/i.test(message)
         ? 'vip_issue'
@@ -45,12 +42,11 @@ async function askAI(message, ctx) {
     };
   }
 
-  // Запрос к OpenAI
   const prompt = [
     {
       role: 'system',
       content:
-        `Ты ассистент саппорта Dialogo для психологов.
+`Ты ассистент саппорта Dialogo для психологов.
 Отвечай кратко и по делу, по-русски.
 Разрешённые темы: оплаты, тариф «Профи», VIP-закрепление, поднятия объявлений.
 Если вопрос вне этих тем — мягко верни пользователя к нужной теме (не разглагольствуй).
@@ -80,7 +76,6 @@ async function askAI(message, ctx) {
     const txt = r?.choices?.[0]?.message?.content || '{}';
     const data = JSON.parse(txt);
 
-    // Жёсткий оффтоп-фильтр
     if (String(data.intent).includes('out_of_scope') || offTopic) {
       return {
         intent: 'out_of_scope',
@@ -93,8 +88,7 @@ async function askAI(message, ctx) {
     return {
       intent: String(data.intent || 'general_billing'),
       need_ticket: !!data.need_ticket,
-      user_reply:
-        String(data.user_reply || 'Принял. Давайте детали оплаты (дата, способ, ID).'),
+      user_reply: String(data.user_reply || 'Принял. Давайте детали оплаты (дата, способ, ID).'),
       confidence: Number(data.confidence ?? 0.5),
     };
   } catch (e) {
@@ -110,49 +104,41 @@ async function askAI(message, ctx) {
 
 export async function POST(req) {
   try {
-    // (опционально) Проверка внутреннего токена, если используете:
-    // const token = req.headers.get('x-internal-token') || '';
-    // if (token !== process.env.INTERNAL_SHARED_TOKEN) {
-    //   return NextResponse.json({ ok: false, error: 'forbidden' }, { status: 403 });
-    // }
+    // Включаем проверку внутреннего токена (совпадает с $ai_token из Nginx dialogo)
+    const token = req.headers.get('x-internal-token') || '';
+    const shared = process.env.AI_INTERNAL_TOKEN || process.env.INTERNAL_SHARED_TOKEN || '';
+    if (shared && token !== shared) {
+      return NextResponse.json({ ok: false, error: 'forbidden' }, { status: 403 });
+    }
 
     const { message, ctx } = await req.json().catch(() => ({}));
     const text = String(message || '').trim();
 
     if (!text) {
-      return NextResponse.json(
-        {
-          ok: true,
-          reply: 'Опишите, пожалуйста, проблему чуть подробнее.',
-          intent: 'general_billing',
-          escalate: false,
-          aiSummary: 'empty_message',
-        },
-        { status: 200 }
-      );
+      return NextResponse.json({
+        ok: true,
+        reply: 'Опишите, пожалуйста, проблему чуть подробнее.',
+        intent: 'general_billing',
+        escalate: false,
+        aiSummary: 'empty_message',
+      }, { status: 200 });
     }
 
     const triage = await askAI(text, ctx || {});
 
-    return NextResponse.json(
-      {
-        ok: true,
-        reply: triage.user_reply,
-        intent: triage.intent,
-        escalate: !!triage.need_ticket,
-        aiSummary: `${triage.intent} (conf=${triage.confidence})`,
-      },
-      { status: 200 }
-    );
+    return NextResponse.json({
+      ok: true,
+      reply: triage.user_reply,
+      intent: triage.intent,
+      escalate: !!triage.need_ticket,
+      aiSummary: `${triage.intent} (conf=${triage.confidence})`,
+    }, { status: 200 });
   } catch (e) {
     console.error('[ai.psych-support/chat] error:', e);
-    return NextResponse.json(
-      {
-        ok: false,
-        reply: 'Техническая ошибка. Попробуйте позже.',
-        error: 'server_error',
-      },
-      { status: 200 }
-    );
+    return NextResponse.json({
+      ok: false,
+      reply: 'Техническая ошибка. Попробуйте позже.',
+      error: 'server_error',
+    }, { status: 200 });
   }
 }
